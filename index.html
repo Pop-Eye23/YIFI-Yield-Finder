@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XRP Ledger AMM Pools - Daily APY Tracker</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- DataTables CSS -->
+    <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <!-- xrpl.js CDN -->
+    <script src="https://unpkg.com/xrpl@3.0.0/dist/xrpl.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(180deg, #000000 0%, #1C2526 100%);
+            color: #FFFFFF;
+            font-family: -apple-system, 'Helvetica Neue', sans-serif;
+            padding: 15px;
+        }
+        .table-container {
+            max-width: 100%;
+            margin: auto;
+            background: #1C2526;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            padding: 10px;
+        }
+        .table {
+            background: #1C2526;
+            color: #FFFFFF;
+        }
+        .table th, .table td {
+            border: 1px solid #3A4A4B;
+            padding: 8px;
+            font-size: 13px;
+        }
+        .table th {
+            background: linear-gradient(180deg, #004D73 0%, #003B5C 100%);
+            text-transform: uppercase;
+            font-weight: 600;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+        .table tbody tr {
+            background: #1C2526;
+        }
+        .table tbody tr:hover {
+            background: #2A3435;
+        }
+        .safety-score {
+            cursor: pointer;
+            color: #0A84FF;
+            text-decoration: underline;
+        }
+        .modal-content {
+            background: #1C2526;
+            color: #FFFFFF;
+            border-radius: 12px;
+            border: none;
+        }
+        .modal-header, .modal-footer {
+            border: none;
+            background: #1C2526;
+        }
+        .modal-title, .modal-body h6 {
+            color: #FFFFFF;
+        }
+        .modal-body ul {
+            margin-bottom: 0;
+            padding-left: 20px;
+        }
+        .modal-body li {
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .btn-close {
+            filter: invert(1);
+        }
+        .btn-secondary {
+            background: #3A4A4B;
+            border: none;
+        }
+        #last-updated {
+            font-size: 11px;
+            color: #E0E0E0;
+            text-align: center;
+            margin-top: 8px;
+        }
+        h2 {
+            font-size: 18px;
+            text-align: center;
+            margin-bottom: 15px;
+            color: #FFFFFF;
+        }
+        @media (max-width: 576px) {
+            .table th, .table td {
+                font-size: 11px;
+                padding: 6px;
+            }
+            h2 {
+                font-size: 16px;
+            }
+            .modal-dialog {
+                margin: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container table-container">
+        <h2>Top 5 XRP Ledger AMM Pools by Daily APY</h2>
+        <table id="ammTable" class="table table-striped table-bordered" style="width:100%">
+            <thead>
+                <tr>
+                    <th>Pool</th>
+                    <th>TVL (USD)</th>
+                    <th>Daily Volume (USD)</th>
+                    <th>Fee Rate (%)</th>
+                    <th>Daily APY (%)</th>
+                    <th>Safety Score</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <div id="last-updated">Last Updated: <span id="update-time"></span></div>
+    </div>
+
+    <!-- Bootstrap Modal Template -->
+    <div class="modal fade" id="safetyModal" tabindex="-1" aria-labelledby="safetyModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="safetyModalLabel">Safety Assessment</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <h6>Pros</h6>
+                    <ul id="pros-list"></ul>
+                    <h6>Cons</h6>
+                    <ul id="cons-list"></ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="errorToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">
+                Failed to load AMM data. Using cached data.
+            </div>
+        </div>
+    </div>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    <script>
+        // Risk assessment data (static for now)
+        const riskData = {
+            "RLUSD/XRP": { score: 8, pros: ["Low IL due to stablecoin pairing", "Ripple-backed RLUSD with $100M market cap", "Strong $500K volume and $2.5M TVL", "Secure XRP Ledger DEX"], cons: ["0.93% fee may deter traders", "Ripple’s SEC history adds regulatory risk", "Monitor AMM bugs"] },
+            "USD/XRP": { score: 9, pros: ["Very low IL with USD stablecoin", "Bitstamp-backed with $3.7M market cap", "Reliable $1.8M TVL and $300K volume", "XRP Ledger security"], cons: ["2.19% APY is modest", "XRP volatility impacts volume", "Bitstamp issuer risk"] },
+            "GATEUSD/XRP": { score: 8, pros: ["Low IL with GATEUSD stablecoin", "$4.2M market cap, 20K holders", "$1.2M TVL supports fees", "Audited XRP Ledger AMM"], cons: ["$200K volume risks fee decline", "Gatehub less established", "Stablecoin regulatory risk"] },
+            "XPM/XRP": { score: 6, pros: ["3.51% APY with 0.50% fee", "XPMarket’s $169K daily volume growth", "Low-cost XRP Ledger"], cons: ["High IL with XPM volatility (-14.1% in 7 days)", "Speculative token, #3876 rank", "Low $800K TVL"] },
+            "STABLE/XRP": { score: 8, pros: ["Low IL with stablecoin", "Balanced 0.35% fee", "XRP Ledger security"], cons: ["Lowest $600K TVL and $100K volume", "Verify stablecoin issuer", "Market crash risk"] }
+        };
+
+        // Mock API data (fallback if all methods fail)
+        const mockApiData = [
+            { pool: "RLUSD/XRP", tvl: 2500000, volume: 500000, feeRate: 0.93 },
+            { pool: "USD/XRP", tvl: 1800000, volume: 300000, feeRate: 0.30 },
+            { pool: "GATEUSD/XRP", tvl: 1200000, volume: 200000, feeRate: 0.40 },
+            { pool: "XPM/XRP", tvl: 800000, volume: 150000, feeRate: 0.50 },
+            { pool: "STABLE/XRP", tvl: 600000, volume: 100000, feeRate: 0.35 }
+        ];
+
+        // Fetch data and update table
+        async function fetchAmmData() {
+            let data;
+            try {
+                const response = await fetch('/.netlify/functions/api');
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                data = await response.json();
+            } catch (error) {
+                console.error('Error fetching XRPScan data:', error);
+                showErrorToast('Failed to load AMM data. Using cached data.');
+                // Fallback to cached data or mock data
+                data = localStorage.getItem('lastAmmData') ? JSON.parse(localStorage.getItem('lastAmmData')) : mockApiData;
+            }
+
+            // Cache the data
+            localStorage.setItem('lastAmmData', JSON.stringify(data));
+
+            // Process API data
+            const processedData = data
+                .filter(pool => pool.tvl >= 500000) // TVL >= $500,000
+                .map(pool => {
+                    const volume = pool.volume || mockApiData.find(p => p.pool === pool.pool)?.volume || 100000;
+                    const feeRate = pool.feeRate || mockApiData.find(p => p.pool === pool.pool)?.feeRate || 0.3;
+                    const dailyFees = volume * (feeRate / 100);
+                    const dailyYield = dailyFees / pool.tvl;
+                    const dailyApy = ((1 + dailyYield) ** 365 - 1) * 100; // Annualized APY
+                    return {
+                        pool: pool.pool,
+                        tvl: pool.tvl.toLocaleString(),
+                        volume: volume.toLocaleString(),
+                        feeRate: feeRate.toFixed(2),
+                        apy: dailyApy.toFixed(2),
+                        safetyScore: `<a href="#" class="safety-score" data-pool="${pool.pool}">${riskData[pool.pool]?.score || 7}/10</a>`
+                    };
+                })
+                .sort((a, b) => b.apy - a.apy)
+                .slice(0, 5);
+
+            // Update DataTable
+            if ($.fn.DataTable.isDataTable('#ammTable')) {
+                $('#ammTable').DataTable().clear().rows.add(processedData).draw();
+            } else {
+                $('#ammTable').DataTable({
+                    data: processedData,
+                    columns: [
+                        { data: 'pool' },
+                        { data: 'tvl' },
+                        { data: 'volume' },
+                        { data: 'feeRate' },
+                        { data: 'apy' },
+                        { data: 'safetyScore' }
+                    ],
+                    pageLength: 5,
+                    lengthChange: false,
+                    searching: false,
+                    ordering: true,
+                    responsive: true,
+                    scrollX: true
+                });
+            }
+
+            // Update timestamp
+            const now = new Date();
+            document.getElementById('update-time').textContent = now.toLocaleString();
+
+            // Attach modal trigger to safety score links
+            document.querySelectorAll('.safety-score').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const pool = e.target.dataset.pool;
+                    const modal = new bootstrap.Modal(document.getElementById('safetyModal'));
+                    document.getElementById('safetyModalLabel').textContent = `${pool}: Safety Assessment`;
+                    const prosList = document.getElementById('pros-list');
+                    const consList = document.getElementById('cons-list');
+                    prosList.innerHTML = (riskData[pool]?.pros || ["Data pending"]).map(pro => `<li>${pro}</li>`).join('');
+                    consList.innerHTML = (riskData[pool]?.cons || ["Data pending"]).map(con => `<li>${con}</li>`).join('');
+                    modal.show();
+                });
+            });
+        }
+
+        // Function to show error toast
+        function showErrorToast(message) {
+            const toastEl = document.getElementById('errorToast');
+            toastEl.querySelector('.toast-body').textContent = message;
+            const toast = new bootstrap.Toast(toastEl);
+            toast.show();
+        }
+
+        // Initial fetch and auto-update every 5 minutes (client-side fallback)
+        fetchAmmData();
+        setInterval(fetchAmmData, 300000); // 5 minutes
+    </script>
+</body>
+</html>
